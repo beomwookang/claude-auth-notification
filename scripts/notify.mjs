@@ -5,19 +5,26 @@
  *
  * Usage: node notify.mjs <event_type>
  * Events: auth_expired, billing_error, auth_restored
+ *
+ * For auth_expired: spawns a relay server (relay.mjs) in the background
+ * that provides a login URL + a web form for remote code submission.
  */
 
-import { readFileSync, existsSync } from "node:fs";
+import { readFileSync, existsSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
+import { spawn } from "node:child_process";
+import { randomBytes } from "node:crypto";
+import { tmpdir } from "node:os";
 
 const CONFIG_DIR = join(homedir(), ".claude-auth-notification");
 const CONFIG_FILE = join(CONFIG_DIR, "config.json");
+const SCRIPT_DIR = new URL(".", import.meta.url).pathname;
 
 const EVENT_MESSAGES = {
   auth_expired: {
     title: "🔐 Claude Code Auth Expired",
-    body: "Your Claude Code authentication has expired. Please re-login to continue.",
+    body: "Your Claude Code authentication has expired.",
     color: 0xff4444,
     emoji: "🔐",
   },
@@ -37,13 +44,64 @@ const EVENT_MESSAGES = {
 
 function loadConfig() {
   if (!existsSync(CONFIG_FILE)) {
-    // Output to stderr so Claude Code hook system captures it
     console.error(
       `[claude-auth-notification] No config found at ${CONFIG_FILE}. Run setup first.`
     );
-    process.exit(0); // Exit cleanly so hook doesn't fail
+    process.exit(0);
   }
   return JSON.parse(readFileSync(CONFIG_FILE, "utf-8"));
+}
+
+/**
+ * Spawns relay.mjs in the background and waits for URLs.
+ * Returns { loginUrl, relayUrl } or null.
+ */
+async function startRelay() {
+  const urlsFile = join(
+    tmpdir(),
+    `claude-auth-relay-${randomBytes(8).toString("hex")}.json`
+  );
+
+  const relay = spawn(
+    "node",
+    [join(SCRIPT_DIR, "relay.mjs"), CONFIG_FILE, urlsFile],
+    {
+      stdio: ["ignore", "ignore", "pipe"],
+      detached: true,
+    }
+  );
+
+  relay.stderr.on("data", (d) => {
+    console.error(d.toString().trim());
+  });
+
+  // Detach so it survives after we exit
+  relay.unref();
+
+  // Poll for URLs file (relay writes it when ready)
+  const maxWait = 25000; // 25s max
+  const interval = 500;
+  let waited = 0;
+
+  while (waited < maxWait) {
+    await new Promise((r) => setTimeout(r, interval));
+    waited += interval;
+
+    if (existsSync(urlsFile)) {
+      try {
+        const data = JSON.parse(readFileSync(urlsFile, "utf-8"));
+        // Clean up temp file
+        try {
+          unlinkSync(urlsFile);
+        } catch {}
+        return data;
+      } catch {
+        // File not fully written yet, keep polling
+      }
+    }
+  }
+
+  return { loginUrl: null, relayUrl: null };
 }
 
 async function sendDiscord(webhookUrl, event) {
@@ -120,9 +178,7 @@ async function sendTelegram(config, event) {
   });
 
   if (!res.ok) {
-    throw new Error(
-      `Telegram API failed: ${res.status} ${res.statusText}`
-    );
+    throw new Error(`Telegram API failed: ${res.status} ${res.statusText}`);
   }
 }
 
@@ -131,6 +187,8 @@ async function sendCustomWebhook(webhookUrl, event) {
     event: process.argv[2],
     title: event.title,
     message: event.body,
+    loginUrl: event.loginUrl || null,
+    relayUrl: event.relayUrl || null,
     timestamp: new Date().toISOString(),
     source: "claude-auth-notification",
   };
@@ -154,11 +212,30 @@ async function main() {
   }
 
   const config = loadConfig();
-  const event = EVENT_MESSAGES[eventType];
+  const event = { ...EVENT_MESSAGES[eventType] };
+
+  // For auth_expired: start relay and get URLs
+  if (eventType === "auth_expired") {
+    const urls = await startRelay();
+
+    if (urls.loginUrl) {
+      event.loginUrl = urls.loginUrl;
+      event.body += `\n\n**Step 1** — Login here:\n${urls.loginUrl}`;
+    }
+
+    if (urls.relayUrl) {
+      event.relayUrl = urls.relayUrl;
+      event.body += `\n\n**Step 2** — Paste the code here:\n${urls.relayUrl}`;
+      event.body += `\n\n_The relay server auto-closes in 5 minutes._`;
+    } else if (urls.loginUrl) {
+      event.body += `\n\n⚠️ Remote relay unavailable. Run \`claude auth login\` on your machine.`;
+    } else {
+      event.body += `\n\n⚠️ Could not start login flow. Run \`claude auth login\` manually.`;
+    }
+  }
 
   // Append machine/hostname info
-  const hostname =
-    process.env.HOSTNAME || process.env.HOST || "unknown";
+  const hostname = process.env.HOSTNAME || process.env.HOST || "unknown";
   event.body += `\n\n🖥️ Host: ${hostname}\n🕐 Time: ${new Date().toLocaleString()}`;
 
   const senders = {

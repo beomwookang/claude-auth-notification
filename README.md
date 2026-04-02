@@ -1,10 +1,10 @@
 # claude-auth-notification
 
-Never miss a Claude Code session again. Get notified instantly when your auth expires — via Discord, Slack, Telegram, or any custom webhook.
+Never miss a Claude Code session again. Get notified instantly when your auth expires — via Discord, Slack, Telegram, or any custom webhook. **Re-authenticate remotely from your phone.**
 
 ## Why?
 
-When running long Claude Code sessions, your authentication can expire silently. You come back to find your session stalled, waiting for re-login. This plugin detects auth failures automatically and sends you a notification so you can re-authenticate right away.
+When running long Claude Code sessions, your authentication can expire silently. You come back to find your session stalled, waiting for re-login. This plugin detects auth failures automatically, sends you a notification with a login link, and lets you re-authenticate from anywhere.
 
 ## How it works
 
@@ -13,12 +13,22 @@ Claude Code auth expires
     ↓
 StopFailure hook fires (authentication_failed)
     ↓
-Notification sent to your channel
+Plugin starts login flow + relay server + SSH tunnel
     ↓
-You re-login → back to work
+Notification sent to your channel:
+  📎 Step 1: Login link (Anthropic OAuth)
+  📎 Step 2: Code relay form (public URL via tunnel)
+    ↓
+You open links on your phone:
+  1. Login → get auth code
+  2. Paste code in relay form
+    ↓
+Relay pipes code to CLI → auth restored!
+    ↓
+✅ "Auth Restored" notification sent
 ```
 
-This plugin uses Claude Code's official [hooks system](https://docs.anthropic.com/en/docs/claude-code/hooks) — no token scraping, no API proxying, no ToS violations. It simply listens for auth failure events and forwards a notification.
+This plugin uses Claude Code's official [hooks system](https://docs.anthropic.com/en/docs/claude-code/hooks) — no token scraping, no API proxying, no ToS violations.
 
 ## Install
 
@@ -86,7 +96,7 @@ npx claude-auth-notification setup discord https://discord.com/api/webhooks/1234
 <summary>How to get a Discord webhook URL</summary>
 
 1. Open Discord → go to the channel you want notifications in
-2. Click **Edit Channel** (⚙️) → **Integrations** → **Webhooks**
+2. Click **Edit Channel** (gear icon) → **Integrations** → **Webhooks**
 3. Click **New Webhook** → **Copy Webhook URL**
 
 </details>
@@ -135,7 +145,9 @@ Your endpoint will receive POST requests with this JSON body:
 {
   "event": "auth_expired",
   "title": "🔐 Claude Code Auth Expired",
-  "message": "Your Claude Code authentication has expired. Please re-login to continue.",
+  "message": "Your Claude Code authentication has expired.",
+  "loginUrl": "https://claude.com/cai/oauth/authorize?...",
+  "relayUrl": "https://abc123.lhr.life/?token=...",
   "timestamp": "2026-04-03T12:00:00.000Z",
   "source": "claude-auth-notification"
 }
@@ -163,13 +175,40 @@ npx claude-auth-notification test
 npx claude-auth-notification status
 ```
 
+## Remote Re-authentication
+
+The killer feature: when auth expires, you don't just get a notification — you get everything needed to re-login from your phone.
+
+### How the relay works
+
+1. **Auth expires** → Hook fires `notify.mjs auth_expired`
+2. **Login flow starts** → `claude auth login` spawns in background, captures OAuth URL
+3. **Relay server starts** → Local HTTP server with a mobile-friendly code input form
+4. **SSH tunnel opens** → `localhost.run` creates a public URL (e.g., `https://abc123.lhr.life`)
+5. **Notification sent** → Discord/Slack/Telegram message with both links
+6. **You act from phone**:
+   - Click link 1 → Login on Anthropic → Copy the auth code
+   - Click link 2 → Paste code in form → Submit
+7. **Relay pipes code** → `claude auth login` completes → credentials updated
+8. **Success notification** → Only sent after verifying auth actually worked
+9. **Auto-cleanup** → Relay server + tunnel shut down (5 min timeout)
+
+### Security
+
+| Concern | Mitigation |
+|---------|------------|
+| Relay URL guessable? | Random URL + one-time token parameter |
+| Auth code intercepted? | PKCE protects the OAuth flow — code alone isn't enough |
+| Relay stays open forever? | Auto-closes after 5 minutes or after successful auth |
+| Invalid code submitted? | `claude auth login` rejects it; user can retry |
+
 ## Events
 
 | Event | When | Notification |
 |-------|------|--------------|
-| `auth_expired` | Authentication token expires | 🔐 Claude Code Auth Expired |
-| `billing_error` | Billing/subscription issue | 💳 Claude Code Billing Error |
-| `auth_restored` | Successfully re-authenticated | ✅ Claude Code Auth Restored |
+| `auth_expired` | Authentication token expires | Login link + relay form |
+| `billing_error` | Billing/subscription issue | Warning notification |
+| `auth_restored` | Successfully re-authenticated (verified) | Success notification |
 
 ## Config
 
@@ -187,20 +226,23 @@ To change your notification channel, just run `setup` again.
 ## How is this different from...?
 
 This plugin does **not**:
-- ❌ Use your subscription token programmatically
-- ❌ Proxy or intercept API calls
-- ❌ Bypass any rate limits or billing
-- ❌ Require any API keys
+- Use your subscription token programmatically
+- Proxy or intercept API calls
+- Bypass any rate limits or billing
+- Require any API keys
 
 It **only**:
-- ✅ Listens for Claude Code's built-in `StopFailure` hook events
-- ✅ Sends a simple webhook notification
-- ✅ Uses zero external dependencies (just Node.js `fetch`)
+- Listens for Claude Code's built-in `StopFailure` hook events
+- Runs `claude auth login` (official CLI) to generate login URLs
+- Creates a temporary relay for remote code submission
+- Sends webhook notifications
+- Uses zero external dependencies (Node.js built-ins + SSH)
 
 ## Requirements
 
 - Claude Code with hooks support
 - Node.js >= 18
+- SSH client (pre-installed on macOS/Linux)
 
 ## License
 

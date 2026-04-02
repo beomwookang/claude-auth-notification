@@ -8,7 +8,7 @@
           {
             "type": "command",
             "command": "node \"$CLAUDE_PLUGIN_ROOT\"/scripts/notify.mjs auth_expired",
-            "timeout": 10
+            "timeout": 30
           }
         ]
       },

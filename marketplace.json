@@ -1,0 +1,16 @@
+{
+  "name": "claude-auth-notification",
+  "owner": {
+    "name": "beomwookang"
+  },
+  "plugins": [
+    {
+      "name": "claude-auth-notification",
+      "source": {
+        "source": "github",
+        "repo": "beomwookang/claude-auth-notification"
+      },
+      "description": "Get notified via Discord, Slack, Telegram, or custom webhook when your Claude Code auth expires"
+    }
+  ]
+}
