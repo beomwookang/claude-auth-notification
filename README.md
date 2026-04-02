@@ -238,57 +238,15 @@ It **only**:
 - Sends webhook notifications
 - Uses zero external dependencies (Node.js built-ins + SSH)
 
-## Alternative: Automatic Token Refresh
+## Do I even need this?
 
-Before using this plugin, you should know that Claude Code has **built-in automatic token refresh**. In most cases, you don't need this plugin at all.
+Claude Code has **built-in automatic token refresh** — it uses a refresh token to silently renew your access token before it expires. In most cases, you'll never notice token expiry.
 
-### How Claude Code handles tokens internally
+However, this plugin is useful when:
 
-```
-Access Token (~2 hours)
-    ↓ expires in 5 min?
-    ↓
-Claude Code auto-refreshes using Refresh Token
-    ↓
-New Access Token → seamless, user never notices
-```
-
-### Using refresh tokens for headless/server use
-
-If you're running Claude Code on a server (CI/CD, automation, etc.), you can use the refresh token directly:
-
-```bash
-# 1. Extract refresh token from macOS Keychain (run once on your Mac)
-security find-generic-password -s "Claude Code-credentials" -w | \
-  node -e "let d='';process.stdin.on('data',c=>d+=c);process.stdin.on('end',()=>{
-    const o=JSON.parse(d).claudeAiOauth;
-    console.log('CLAUDE_CODE_OAUTH_REFRESH_TOKEN=\"'+o.refreshToken+'\"');
-    console.log('CLAUDE_CODE_OAUTH_SCOPES=\"'+(Array.isArray(o.scopes)?o.scopes.join(' '):o.scopes)+'\"');
-  })"
-
-# 2. Set environment variables on your server
-export CLAUDE_CODE_OAUTH_REFRESH_TOKEN="sk-ant-ort01-..."
-export CLAUDE_CODE_OAUTH_SCOPES="user:file_upload user:inference user:mcp_servers user:profile user:sessions:claude_code"
-
-# 3. Claude Code auto-exchanges refresh token → access token on startup
-claude -p "your prompt here"
-```
-
-On Linux servers, credentials are stored in `~/.claude/.credentials.json` instead of Keychain.
-
-> **Security**: Treat the refresh token like a password. Anyone with it can use your Claude subscription. Store it in a secret manager, not in plain text.
-
-### When do you still need this plugin?
-
-| Scenario | Auto-refresh handles it? | Plugin needed? |
-|----------|--------------------------|----------------|
-| Access token expires during session | Yes | No |
-| Server/CI with refresh token env var | Yes | No |
-| **Refresh token itself expires** | No | **Yes** |
-| **Refresh token revoked** (password change, etc.) | No | **Yes** |
-| **Billing error** | No | **Yes** |
-
-The refresh token can expire or be revoked — the exact lifetime is controlled by Anthropic's servers. When that happens, a full re-login (browser-based OAuth) is required, and that's when this plugin sends you a notification with a login link and relay form.
+- **The refresh token itself expires or is revoked** — Claude Code can no longer auto-renew, and a full browser-based re-login is required
+- **A billing error occurs** — subscription issues can't be solved by token refresh
+- **You're away from your machine** — the relay feature lets you re-authenticate from your phone
 
 ## Requirements
 
