@@ -1,0 +1,39 @@
+{
+  "description": "Auth expiry detection and notification hooks",
+  "hooks": {
+    "StopFailure": [
+      {
+        "matcher": "authentication_failed",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PLUGIN_ROOT\"/scripts/notify.mjs auth_expired",
+            "timeout": 10
+          }
+        ]
+      },
+      {
+        "matcher": "billing_error",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PLUGIN_ROOT\"/scripts/notify.mjs billing_error",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "matcher": "auth_success",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PLUGIN_ROOT\"/scripts/notify.mjs auth_restored",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

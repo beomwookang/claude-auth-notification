@@ -1,0 +1,22 @@
+{
+  "name": "claude-auth-notification",
+  "version": "1.0.0",
+  "description": "Get notified via Discord, Slack, Telegram, or custom webhook when your Claude Code auth expires",
+  "author": {
+    "name": "beomwookang"
+  },
+  "repository": "https://github.com/beomwookang/claude-auth-notification",
+  "homepage": "https://github.com/beomwookang/claude-auth-notification",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "auth",
+    "notification",
+    "webhook",
+    "discord",
+    "slack",
+    "telegram"
+  ],
+  "skills": "./skills/"
+}
